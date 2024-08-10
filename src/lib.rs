@@ -1,6 +1,7 @@
 use std::io::{self};
 use std::path::PathBuf;
 
+pub use ::schematic;
 use directories::ProjectDirs;
 use schematic::Format;
 use serde::{Deserialize, Serialize};
