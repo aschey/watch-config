@@ -54,6 +54,11 @@ where
         }
     }
 
+    pub fn cancellation_token(mut self, cancellation_token: CancellationToken) -> Self {
+        self.cancellation_token = cancellation_token;
+        self
+    }
+
     pub async fn run(self) {
         let (file_changed_tx, mut file_changed_rx) = watch::channel(());
         let mut debouncer = new_debouncer_opt::<_, RecommendedWatcher>(
