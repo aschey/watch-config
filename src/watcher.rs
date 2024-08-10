@@ -1,3 +1,7 @@
+use std::future::Future;
+use std::pin::Pin;
+
+use futures::FutureExt as _;
 use futures_cancel::FutureExt;
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer_opt, DebouncedEvent};
@@ -29,12 +33,12 @@ impl<T: LoadConfig> ConfigServiceHandle<T> {
     }
 }
 
-#[derive(Debug)]
 pub struct ConfigWatcherService<T>
 where
     T: LoadConfig,
 {
     config: T,
+    cancellation: Pin<Box<dyn Future<Output = ()> + Send>>,
     cancellation_token: CancellationToken,
     config_tx: broadcast::Sender<Result<ConfigUpdate<T::Config>, T::Error>>,
 }
@@ -47,15 +51,27 @@ where
 {
     pub fn new(config: T) -> Self {
         let (config_tx, _) = broadcast::channel(32);
+        let cancellation_token = CancellationToken::new();
         Self {
             config,
             config_tx,
-            cancellation_token: CancellationToken::new(),
+            cancellation: Box::pin(cancellation_token.clone().cancelled_owned()),
+            cancellation_token,
         }
     }
 
-    pub fn cancellation_token(mut self, cancellation_token: CancellationToken) -> Self {
-        self.cancellation_token = cancellation_token;
+    pub fn cancel_on<F>(mut self, fut: F) -> Self
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let fut = Box::pin(fut);
+        let cancellation_token = self.cancellation_token.clone();
+        self.cancellation = Box::pin(async move {
+            tokio::select! {
+                _ = cancellation_token.cancelled() => {},
+                _ = fut => {}
+            }
+        });
         self
     }
 
@@ -81,9 +97,11 @@ where
             .watch(&self.config.full_path(), RecursiveMode::NonRecursive)
             .unwrap();
 
+        let cancellation = self.cancellation.shared();
+
         while let Ok(Ok(_)) = file_changed_rx
             .changed()
-            .cancel_on_shutdown(&self.cancellation_token)
+            .cancel_with(cancellation.clone())
             .await
         {
             let old = self.config.snapshot();
