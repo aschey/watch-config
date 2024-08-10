@@ -19,7 +19,6 @@ pub struct AppConfig<T: Config> {
     config_dir: PathBuf,
     filename: String,
     config: Arc<ArcSwap<T>>,
-    // loader: ConfigLoader<T>,
 }
 
 impl<T: Config + PartialEq> LoadConfig for AppConfig<T> {
@@ -48,7 +47,10 @@ impl<T: Schematic + Config + PartialEq> AppConfig<T> {
         let config_dir = settings.get_config_dir();
 
         let full_path = settings.get_full_path();
-        write_config_template::<T>(settings.format, &full_path);
+        if !full_path.exists() {
+            write_config_template::<T>(settings.format, &full_path);
+        }
+
         let mut loader = ConfigLoader::<T>::new();
         loader.file(full_path).unwrap();
         let val = loader.load().unwrap().config;
@@ -68,7 +70,6 @@ impl<T: Schematic + Config + PartialEq> AppConfig<T> {
             debug!("Not creating config file {full_path:#?} because it already exists");
             return Ok(());
         }
-
         self.overwrite_config_file()
     }
 
