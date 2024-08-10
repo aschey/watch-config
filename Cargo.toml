@@ -1,0 +1,28 @@
+[package]
+name = "watch-config"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arc-swap = "1.7.1"
+directories = "5.0.1"
+notify = "6.1.1"
+notify-debouncer-mini = "0.4.1"
+schematic = { version = "0.17.0", features = [
+    "schema",
+    "renderer_template",
+    "json",
+    "pkl",
+    "toml",
+    "yaml",
+] }
+serde = "1.0.205"
+tokio = { version = "1.39.2", features = ["rt", "sync"] }
+tokio-util = "0.7.11"
+tracing = "0.1.40"
+futures-cancel = { git = "https://github.com/aschey/futures-cancel", rev = "d2c20b78ff5c9e85aa892b51971cc1c1b6b22351" }
+edit = "0.1.5"
+
+[dev-dependencies]
+tokio = { version = "1.39.2", features = ["rt-multi-thread", "sync", "macros"] }
+clap = { version = "4.5.15", features = ["derive"] }
