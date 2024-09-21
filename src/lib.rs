@@ -14,9 +14,17 @@ mod watcher;
 pub trait LoadConfig {
     type Config: PartialEq;
     type Error;
+
     fn snapshot(&self) -> Self::Config;
+
     fn reload(&self) -> Result<Self::Config, Self::Error>;
+
     fn full_path(&self) -> PathBuf;
+
+    fn directory(&self) -> PathBuf {
+        self.full_path().parent().unwrap().to_path_buf()
+    }
+
     fn edit(&self) -> Result<Self::Config, Self::Error> {
         let full_path = self.full_path();
         edit::edit_file(&full_path).unwrap();

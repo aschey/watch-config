@@ -1,5 +1,6 @@
 use clap::Parser;
 use schematic::{Config, Format};
+use tracing_subscriber::EnvFilter;
 use watch_config::backend::schematic::AppConfig;
 use watch_config::{ConfigDir, ConfigSettings, ConfigWatcherService, LoadConfig};
 
@@ -22,11 +23,18 @@ enum Cli {
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_line_number(true)
+        .with_file(true)
+        .init();
+
     let config = AppConfig::<AppConfigExample>::new(ConfigSettings::new(
         ConfigDir::Custom("./.config".into()),
         Format::Yaml,
         "config.yml".to_owned(),
     ));
+
     let cli = Cli::parse();
     match cli {
         Cli::Watch => {

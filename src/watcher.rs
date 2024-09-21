@@ -4,7 +4,7 @@ use std::pin::Pin;
 use futures::FutureExt as _;
 use futures_cancel::FutureExt;
 use notify::{RecommendedWatcher, RecursiveMode};
-use notify_debouncer_mini::{new_debouncer_opt, DebouncedEvent};
+use notify_debouncer_mini::{DebouncedEvent, new_debouncer_opt};
 use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -94,7 +94,7 @@ where
         .unwrap();
         let watcher = debouncer.watcher();
         watcher
-            .watch(&self.config.full_path(), RecursiveMode::NonRecursive)
+            .watch(&self.config.directory(), RecursiveMode::Recursive)
             .unwrap();
 
         let cancellation = self.cancellation.shared();
