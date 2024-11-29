@@ -1,10 +1,11 @@
 use std::future::Future;
 use std::pin::Pin;
+use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures_cancel::FutureExt;
-use notify::{RecommendedWatcher, RecursiveMode};
-use notify_debouncer_mini::{DebouncedEvent, new_debouncer_opt};
+use notify::{EventKind, RecursiveMode};
+use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -77,28 +78,31 @@ where
 
     pub async fn run(self) {
         let (file_changed_tx, mut file_changed_rx) = watch::channel(());
-        let mut debouncer = new_debouncer_opt::<_, RecommendedWatcher>(
-            notify_debouncer_mini::Config::default(),
-            move |events: Result<Vec<DebouncedEvent>, notify::Error>| {
-                if events
-                    .inspect_err(|e| error!("File watch error: {e:?}"))
-                    .is_ok()
-                {
-                    file_changed_tx
-                        .send(())
-                        .inspect_err(|e| warn!("Error sending file paths: {e:?}"))
-                        .ok();
+        let mut debouncer = new_debouncer(
+            Duration::from_secs(1),
+            None,
+            move |result: DebounceEventResult| {
+                if let Ok(events) = result.inspect_err(|e| error!("File watch error: {e:?}")) {
+                    if events
+                        .into_iter()
+                        .any(|e| !matches!(e.event.kind, EventKind::Access(_)))
+                    {
+                        file_changed_tx
+                            .send(())
+                            .inspect_err(|e| warn!("Error sending file paths: {e:?}"))
+                            .ok();
+                    }
                 }
             },
         )
         .unwrap();
-        let watcher = debouncer.watcher();
-        watcher
-            .watch(&self.config.directory(), RecursiveMode::Recursive)
+        debouncer
+            .watch(self.config.directory(), RecursiveMode::Recursive)
             .unwrap();
 
         let cancellation = self.cancellation.shared();
 
+        let mut is_errored = false;
         while let Ok(Ok(_)) = file_changed_rx
             .changed()
             .cancel_with(cancellation.clone())
@@ -107,11 +111,13 @@ where
             let old = self.config.snapshot();
             match self.config.reload() {
                 Ok(new) => {
-                    if old != new {
+                    if is_errored || old != new {
                         self.config_tx.send(Ok(ConfigUpdate { old, new })).ok();
+                        is_errored = false;
                     }
                 }
                 Err(e) => {
+                    is_errored = true;
                     self.config_tx.send(Err(e)).ok();
                 }
             }
