@@ -1,14 +1,14 @@
 [package]
 name = "watch-config"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 arc-swap = "1.7"
-directories = "5"
-notify = "7"
-notify-debouncer-full = "0.4"
-schematic = { version = "0.17", features = [
+directories = "6"
+notify = "8"
+notify-debouncer-full = "0.5"
+schematic = { version = "0.18", features = [
   "schema",
   "renderer_template",
   "json",
@@ -25,6 +25,6 @@ edit = "0.1.5"
 futures = "0.3.30"
 
 [dev-dependencies]
-tokio = { version = "1.40.0", features = ["rt-multi-thread", "sync", "macros"] }
-clap = { version = "4.5.15", features = ["derive"] }
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tokio = { version = "1.43.0", features = ["rt-multi-thread", "sync", "macros"] }
+clap = { version = "4.5.31", features = ["derive"] }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }

@@ -11,7 +11,7 @@ use schematic::schema::{
 use schematic::{Config, ConfigError, ConfigLoader, Format, Schematic};
 use tracing::debug;
 
-use crate::{io_error, ConfigSettings, LoadConfig};
+use crate::{ConfigSettings, LoadConfig, io_error};
 
 #[derive(Clone)]
 pub struct AppConfig<T: Config> {
