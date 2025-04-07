@@ -1,8 +1,8 @@
 use clap::Parser;
 use schematic::{Config, Format};
 use tracing_subscriber::EnvFilter;
-use watch_config::backend::schematic::AppConfig;
-use watch_config::{ConfigDir, ConfigSettings, ConfigWatcherService, LoadConfig};
+use watch_config::backend::schematic::{AppConfig, ConfigSettings};
+use watch_config::{ConfigDir, ConfigWatcherService, LoadConfig};
 
 #[derive(Config, PartialEq, Eq, Clone, Debug)]
 struct AppConfigExample {
@@ -29,11 +29,12 @@ async fn main() {
         .with_file(true)
         .init();
 
-    let config = AppConfig::<AppConfigExample>::new(ConfigSettings::new(
+    let settings = ConfigSettings::new(
         ConfigDir::Custom("./.config".into()),
         Format::Yaml,
         "config.yml".to_owned(),
-    ));
+    );
+    let config = AppConfig::<AppConfigExample>::new(settings).unwrap();
 
     let cli = Cli::parse();
     match cli {

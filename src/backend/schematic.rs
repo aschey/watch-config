@@ -8,10 +8,75 @@ use schematic::schema::{
     JsoncTemplateRenderer, PklTemplateRenderer, SchemaGenerator, TomlTemplateRenderer,
     YamlTemplateRenderer,
 };
-use schematic::{Config, ConfigError, ConfigLoader, Format, Schematic};
+use schematic::{Config, ConfigError, ConfigLoader, Format, PartialConfig, Schematic};
 use tracing::debug;
 
-use crate::{ConfigSettings, LoadConfig, io_error};
+use crate::{ConfigDir, LoadConfig, ensure_created, io_error, overwrite_config_file};
+
+pub struct ConfigSettings<T, C>
+where
+    T: Config,
+{
+    config_dir: ConfigDir,
+    format: Format,
+    config_filename: String,
+    partial: Option<T::Partial>,
+    context: C,
+}
+
+impl<T> ConfigSettings<T, ()>
+where
+    T: Config,
+{
+    pub fn new(config_dir: ConfigDir, format: Format, config_filename: String) -> Self {
+        Self {
+            config_dir,
+            format,
+            config_filename,
+            partial: None,
+            context: (),
+        }
+    }
+}
+
+impl<T, C> ConfigSettings<T, C>
+where
+    T: Config,
+{
+    pub fn partial(mut self, partial: T::Partial) -> Self {
+        self.partial = Some(partial);
+        self
+    }
+
+    pub fn get_full_path(&self) -> PathBuf {
+        self.config_dir.get_config_dir().join(&self.config_filename)
+    }
+}
+
+impl<T, C> ConfigSettings<T, C>
+where
+    T: Config + PartialConfig,
+{
+    pub fn context(
+        self,
+        context: <T as PartialConfig>::Context,
+    ) -> ConfigSettings<T, <T as PartialConfig>::Context> {
+        let Self {
+            config_dir,
+            format,
+            config_filename,
+            partial,
+            context: _context,
+        } = self;
+        ConfigSettings {
+            config_dir,
+            format,
+            config_filename,
+            partial,
+            context,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct AppConfig<T: Config> {
@@ -21,9 +86,13 @@ pub struct AppConfig<T: Config> {
     config: Arc<ArcSwap<T>>,
 }
 
-impl<T: Config + PartialEq> LoadConfig for AppConfig<T> {
+impl<T> LoadConfig for AppConfig<T>
+where
+    T: Config + PartialEq,
+{
     type Config = Arc<T>;
     type Error = Arc<ConfigError>;
+
     fn snapshot(&self) -> Arc<T> {
         self.config.load_full()
     }
@@ -42,9 +111,14 @@ impl<T: Config + PartialEq> LoadConfig for AppConfig<T> {
     }
 }
 
-impl<T: Schematic + Config + PartialEq> AppConfig<T> {
-    pub fn new(settings: ConfigSettings) -> Self {
-        let config_dir = settings.get_config_dir();
+impl<T> AppConfig<T>
+where
+    T: Schematic + Config + PartialEq,
+{
+    pub fn new(
+        settings: ConfigSettings<T, <T::Partial as PartialConfig>::Context>,
+    ) -> Result<Self, ConfigError> {
+        let config_dir = settings.config_dir.get_config_dir();
 
         let full_path = settings.get_full_path();
         if !full_path.exists() {
@@ -52,37 +126,26 @@ impl<T: Schematic + Config + PartialEq> AppConfig<T> {
         }
 
         let mut loader = ConfigLoader::<T>::new();
-        loader.file(full_path).unwrap();
-        let val = loader.load().unwrap().config;
+        loader.file(full_path)?;
+        loader.load_partial(&settings.context)?;
+        let val = loader.load()?.config;
         let config = Arc::new(ArcSwap::new(Arc::new(val)));
 
-        Self {
+        Ok(Self {
             format: settings.format,
             config_dir,
             filename: settings.config_filename,
             config,
-        }
+        })
     }
-
     pub fn ensure_created(&self) -> io::Result<()> {
-        let full_path = self.full_path();
-        if full_path.exists() {
-            debug!("Not creating config file {full_path:#?} because it already exists");
-            return Ok(());
-        }
-        self.overwrite_config_file()
+        ensure_created(&self.config_dir, &self.full_path(), || {
+            self.write_config_template()
+        })
     }
 
     pub fn overwrite_config_file(&self) -> io::Result<()> {
-        create_dir_all(&self.config_dir).map_err(|e| {
-            io_error(
-                &format!("Error creating config dir {:#?}", self.config_dir),
-                e,
-            )
-        })?;
-
-        self.write_config_template();
-        Ok(())
+        overwrite_config_file(&self.config_dir, || self.write_config_template())
     }
 
     pub fn write_config_template(&self) {

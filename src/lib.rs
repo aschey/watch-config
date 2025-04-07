@@ -1,10 +1,12 @@
+use std::fs::create_dir_all;
 use std::io::{self};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub use ::schematic;
 use directories::ProjectDirs;
 use schematic::Format;
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 pub use watcher::*;
 
 pub mod backend;
@@ -45,26 +47,11 @@ pub enum ConfigDir {
     Custom(PathBuf),
 }
 
-#[derive(Debug)]
-pub struct ConfigSettings {
-    pub(crate) config_dir: ConfigDir,
-    pub(crate) format: Format,
-    pub(crate) config_filename: String,
-}
-
-impl ConfigSettings {
-    pub fn new(config_dir: ConfigDir, format: Format, config_filename: String) -> Self {
-        Self {
-            config_dir,
-            format,
-            config_filename,
-        }
-    }
-
+impl ConfigDir {
     pub fn get_config_dir(&self) -> PathBuf {
-        match &self.config_dir {
-            ConfigDir::Custom(config_dir) => config_dir.to_owned(),
-            ConfigDir::ProjectDir(label) => {
+        match &self {
+            Self::Custom(config_dir) => config_dir.to_owned(),
+            Self::ProjectDir(label) => {
                 ProjectDirs::from(&label.qualifier, &label.organization, &label.application)
                     .unwrap()
                     .config_dir()
@@ -72,10 +59,32 @@ impl ConfigSettings {
             }
         }
     }
+}
 
-    pub fn get_full_path(&self) -> PathBuf {
-        self.get_config_dir().join(&self.config_filename)
+pub(crate) fn ensure_created<F>(
+    config_dir: &Path,
+    full_path: &Path,
+    template_fn: F,
+) -> io::Result<()>
+where
+    F: FnOnce(),
+{
+    if full_path.exists() {
+        debug!("Not creating config file {full_path:#?} because it already exists");
+        return Ok(());
     }
+    overwrite_config_file(config_dir, template_fn)
+}
+
+pub(crate) fn overwrite_config_file<F>(config_dir: &Path, template_fn: F) -> io::Result<()>
+where
+    F: FnOnce(),
+{
+    create_dir_all(config_dir)
+        .map_err(|e| io_error(&format!("Error creating config dir {:#?}", config_dir), e))?;
+
+    template_fn();
+    Ok(())
 }
 
 pub(crate) fn io_error(msg: &str, inner: io::Error) -> io::Error {
