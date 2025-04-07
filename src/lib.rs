@@ -2,9 +2,11 @@ use std::fs::create_dir_all;
 use std::io::{self};
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "confique")]
+pub use ::confique;
+#[cfg(feature = "schematic")]
 pub use ::schematic;
 use directories::ProjectDirs;
-use schematic::Format;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 pub use watcher::*;

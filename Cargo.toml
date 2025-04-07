@@ -11,13 +11,9 @@ notify-debouncer-full = "0.5"
 schematic = { version = "0.18", features = [
   "schema",
   "renderer_template",
-  "json",
-  "pkl",
-  "toml",
-  "yaml",
-] }
-confique = { version = "0.3.0", features = ["toml", "yaml", "json5"] }
-serde = "1.0.134"
+], optional = true }
+confique = { version = "0.3.0", optional = true }
+serde = { version = "1.0.134", features = ["derive"] }
 tokio = { version = "1.27", features = ["rt", "sync", "macros"] }
 tokio-util = "0.7.1"
 tracing = "0.1"
@@ -29,3 +25,11 @@ futures = "0.3.30"
 tokio = { version = "1.43.0", features = ["rt-multi-thread", "sync", "macros"] }
 clap = { version = "4.5.31", features = ["derive"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+
+[features]
+schematic = ["dep:schematic"]
+confique = ["dep:confique"]
+json = ["schematic?/json", "confique?/json5"]
+toml = ["schematic?/toml", "confique?/toml"]
+yaml = ["schematic?/yaml", "confique?/yaml"]
+pkl = ["schematic?/pkl"]

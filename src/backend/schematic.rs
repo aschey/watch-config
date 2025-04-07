@@ -1,17 +1,12 @@
-use std::fs::create_dir_all;
 use std::io::{self};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use schematic::schema::{
-    JsoncTemplateRenderer, PklTemplateRenderer, SchemaGenerator, TomlTemplateRenderer,
-    YamlTemplateRenderer,
-};
-use schematic::{Config, ConfigError, ConfigLoader, Format, PartialConfig, Schematic};
-use tracing::debug;
+use schematic::schema::SchemaGenerator;
+use schematic::{Config, ConfigError, ConfigLoader, Format, PartialConfig, Schematic, schema};
 
-use crate::{ConfigDir, LoadConfig, ensure_created, io_error, overwrite_config_file};
+use crate::{ConfigDir, LoadConfig, ensure_created, overwrite_config_file};
 
 pub struct ConfigSettings<T, C>
 where
@@ -121,9 +116,10 @@ where
         let config_dir = settings.config_dir.get_config_dir();
 
         let full_path = settings.get_full_path();
-        if !full_path.exists() {
-            write_config_template::<T>(settings.format, &full_path);
-        }
+        ensure_created(&config_dir, &full_path, || {
+            write_config_template::<T>(settings.format, &full_path)
+        })
+        .unwrap();
 
         let mut loader = ConfigLoader::<T>::new();
         loader.file(full_path)?;
@@ -158,24 +154,28 @@ fn write_config_template<T: Schematic>(format: Format, path: &Path) {
     generator.add::<T>();
 
     match format {
+        #[cfg(feature = "json")]
         Format::Json => {
             generator
-                .generate(path, JsoncTemplateRenderer::default())
+                .generate(path, schema::JsoncTemplateRenderer::default())
                 .unwrap();
         }
+        #[cfg(feature = "pkl")]
         Format::Pkl => {
             generator
-                .generate(path, PklTemplateRenderer::default())
+                .generate(path, schema::PklTemplateRenderer::default())
                 .unwrap();
         }
+        #[cfg(feature = "toml")]
         Format::Toml => {
             generator
-                .generate(path, TomlTemplateRenderer::default())
+                .generate(path, schema::TomlTemplateRenderer::default())
                 .unwrap();
         }
+        #[cfg(feature = "yaml")]
         Format::Yaml => {
             generator
-                .generate(path, YamlTemplateRenderer::default())
+                .generate(path, schema::YamlTemplateRenderer::default())
                 .unwrap();
         }
         Format::None => {}

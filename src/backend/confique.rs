@@ -1,13 +1,12 @@
-use std::fs::{self, create_dir_all};
+use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use confique::{Config, FileFormat};
-use tracing::debug;
+use confique::Config;
 
-use crate::{ConfigDir, LoadConfig, ensure_created, io_error, overwrite_config_file};
+use crate::{ConfigDir, LoadConfig, ensure_created, overwrite_config_file};
 
 #[derive(Debug)]
 pub struct ConfigSettings<T>
@@ -61,7 +60,9 @@ where
     }
 
     fn reload(&self) -> Result<Arc<T>, Self::Error> {
-        let mut loader = T::builder().env().file(self.full_path());
+        let mut loader = T::builder().env();
+        #[cfg(any(feature = "toml", feature = "yaml", feature = "json"))]
+        let mut loader = loader.file(self.full_path());
         if let Some(partial) = &self.partial {
             loader = loader.preloaded(partial.clone());
         }
@@ -85,11 +86,14 @@ where
         let config_dir = settings.config_dir.get_config_dir();
 
         let full_path = settings.get_full_path();
-        if !full_path.exists() {
-            write_config_template::<T>(&full_path);
-        }
+        ensure_created(&config_dir, &full_path, || {
+            write_config_template::<T>(&full_path)
+        })
+        .unwrap();
 
-        let mut loader = T::builder().env().file(full_path);
+        let mut loader = T::builder().env();
+        #[cfg(any(feature = "toml", feature = "yaml", feature = "json"))]
+        let mut loader = loader.file(full_path);
         if let Some(partial) = &settings.partial {
             loader = loader.preloaded(partial.clone());
         }
@@ -116,33 +120,29 @@ where
     }
 
     pub fn write_config_template(&self) {
-        let path = self.full_path();
-        let format = FileFormat::from_extension(path.extension().unwrap()).unwrap();
+        write_config_template::<T>(&self.full_path());
+    }
+}
+
+fn write_config_template<T: Config>(path: &Path) {
+    #[cfg(any(feature = "toml", feature = "yaml", feature = "json"))]
+    {
+        let format = confique::FileFormat::from_extension(path.extension().unwrap()).unwrap();
         let content = match format {
-            FileFormat::Toml => {
+            #[cfg(feature = "toml")]
+            confique::FileFormat::Toml => {
                 confique::toml::template::<T>(confique::toml::FormatOptions::default())
             }
-            FileFormat::Yaml => {
+            #[cfg(feature = "yaml")]
+            confique::FileFormat::Yaml => {
                 confique::yaml::template::<T>(confique::yaml::FormatOptions::default())
             }
-            FileFormat::Json5 => {
+            #[cfg(feature = "json")]
+            confique::FileFormat::Json5 => {
                 confique::json5::template::<T>(confique::json5::FormatOptions::default())
             }
         };
         let mut file = fs::File::create(path).unwrap();
         file.write_all(content.as_bytes()).unwrap();
     }
-}
-
-fn write_config_template<T: Config>(path: &Path) {
-    let format = FileFormat::from_extension(path.extension().unwrap()).unwrap();
-    let content = match format {
-        FileFormat::Toml => confique::toml::template::<T>(confique::toml::FormatOptions::default()),
-        FileFormat::Yaml => confique::yaml::template::<T>(confique::yaml::FormatOptions::default()),
-        FileFormat::Json5 => {
-            confique::json5::template::<T>(confique::json5::FormatOptions::default())
-        }
-    };
-    let mut file = fs::File::create(path).unwrap();
-    file.write_all(content.as_bytes()).unwrap();
 }
