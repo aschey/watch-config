@@ -60,7 +60,7 @@ where
     }
 
     fn reload(&self) -> Result<Arc<T>, Self::Error> {
-        let mut loader = T::builder().env();
+        let loader = T::builder().env();
         #[cfg(any(feature = "toml", feature = "yaml", feature = "json"))]
         let mut loader = loader.file(self.full_path());
         if let Some(partial) = &self.partial {
@@ -91,7 +91,7 @@ where
         })
         .unwrap();
 
-        let mut loader = T::builder().env();
+        let loader = T::builder().env();
         #[cfg(any(feature = "toml", feature = "yaml", feature = "json"))]
         let mut loader = loader.file(full_path);
         if let Some(partial) = &settings.partial {

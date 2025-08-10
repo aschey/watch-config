@@ -1,13 +1,10 @@
-use std::future::Future;
-use std::pin::Pin;
 use std::time::Duration;
 
-use futures::FutureExt as _;
-use futures_cancel::FutureExt;
 use notify::{EventKind, RecursiveMode};
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
+use tokio_util::future::FutureExt;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, warn};
 
@@ -39,7 +36,6 @@ where
     T: LoadConfig,
 {
     config: T,
-    cancellation: Pin<Box<dyn Future<Output = ()> + Send>>,
     cancellation_token: CancellationToken,
     config_tx: broadcast::Sender<Result<ConfigUpdate<T::Config>, T::Error>>,
 }
@@ -56,24 +52,12 @@ where
         Self {
             config,
             config_tx,
-            cancellation: Box::pin(cancellation_token.clone().cancelled_owned()),
             cancellation_token,
         }
     }
 
-    pub fn cancel_on<F>(mut self, fut: F) -> Self
-    where
-        F: Future<Output = ()> + Send + 'static,
-    {
-        let fut = Box::pin(fut);
-        let cancellation_token = self.cancellation_token.clone();
-        self.cancellation = Box::pin(async move {
-            tokio::select! {
-                _ = cancellation_token.cancelled() => {},
-                _ = fut => {}
-            }
-        });
-        self
+    pub fn cancellation_token(&self) -> &CancellationToken {
+        &self.cancellation_token
     }
 
     pub async fn run(self) {
@@ -82,16 +66,15 @@ where
             Duration::from_secs(1),
             None,
             move |result: DebounceEventResult| {
-                if let Ok(events) = result.inspect_err(|e| error!("File watch error: {e:?}")) {
-                    if events
+                if let Ok(events) = result.inspect_err(|e| error!("File watch error: {e:?}"))
+                    && events
                         .into_iter()
                         .any(|e| !matches!(e.event.kind, EventKind::Access(_)))
-                    {
-                        file_changed_tx
-                            .send(())
-                            .inspect_err(|e| warn!("Error sending file paths: {e:?}"))
-                            .ok();
-                    }
+                {
+                    file_changed_tx
+                        .send(())
+                        .inspect_err(|e| warn!("Error sending file paths: {e:?}"))
+                        .ok();
                 }
             },
         )
@@ -100,12 +83,10 @@ where
             .watch(self.config.directory(), RecursiveMode::Recursive)
             .unwrap();
 
-        let cancellation = self.cancellation.shared();
-
         let mut is_errored = false;
-        while let Ok(Ok(_)) = file_changed_rx
+        while let Some(Ok(_)) = file_changed_rx
             .changed()
-            .cancel_with(cancellation.clone())
+            .with_cancellation_token(&self.cancellation_token)
             .await
         {
             let old = self.config.snapshot();
