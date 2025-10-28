@@ -5,7 +5,7 @@ use watch_config::backend::confique::{AppConfig, ConfigSettings};
 use watch_config::{ConfigDir, ConfigWatcherService, LoadConfig};
 
 #[derive(Config, PartialEq, Eq, Clone, Debug)]
-#[config(partial_attr(derive(Clone)))]
+#[config(layer_attr(derive(Clone)))]
 struct AppConfigExample {
     #[config(default = 1)]
     pub number: usize,

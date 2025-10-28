@@ -15,7 +15,7 @@ where
 {
     config_dir: ConfigDir,
     config_filename: String,
-    partial: Option<T::Partial>,
+    partial: Option<T::Layer>,
 }
 
 impl<T> ConfigSettings<T>
@@ -30,7 +30,7 @@ where
         }
     }
 
-    pub fn partial(mut self, partial: T::Partial) -> Self {
+    pub fn partial(mut self, partial: T::Layer) -> Self {
         self.partial = Some(partial);
         self
     }
@@ -43,7 +43,7 @@ where
 #[derive(Clone)]
 pub struct AppConfig<T: Config> {
     config_dir: PathBuf,
-    partial: Option<T::Partial>,
+    partial: Option<T::Layer>,
     filename: String,
     config: Arc<ArcSwap<T>>,
 }
@@ -51,7 +51,7 @@ pub struct AppConfig<T: Config> {
 impl<T: Config + PartialEq> LoadConfig for AppConfig<T>
 where
     T: Config + PartialEq,
-    T::Partial: Clone,
+    T::Layer: Clone,
 {
     type Config = Arc<T>;
     type Error = Arc<confique::Error>;
@@ -80,7 +80,7 @@ where
 impl<T> AppConfig<T>
 where
     T: Config + PartialEq,
-    T::Partial: Clone,
+    T::Layer: Clone,
 {
     pub fn new(settings: ConfigSettings<T>) -> Result<Self, confique::Error> {
         let config_dir = settings.config_dir.get_config_dir();
