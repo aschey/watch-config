@@ -1,38 +1,46 @@
 use std::fs;
 use std::io::{self, Write};
+use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use confique::Config;
+use confique::{Builder, Config};
 
 use crate::{ConfigDir, LoadConfig, ensure_created, overwrite_config_file};
 
-#[derive(Debug)]
-pub struct ConfigSettings<T>
+pub trait ConfiqueConfig<T>
 where
     T: Config,
+{
+    fn builder(&self, path: &Path) -> Builder<T>;
+    fn template(&self) -> String;
+}
+
+#[derive(Debug)]
+pub struct ConfigSettings<T, C>
+where
+    T: Config,
+    C: ConfiqueConfig<T>,
 {
     config_dir: ConfigDir,
     config_filename: String,
-    partial: Option<T::Layer>,
+    confique_config: C,
+    _phantom: PhantomData<T>,
 }
 
-impl<T> ConfigSettings<T>
+impl<T, C> ConfigSettings<T, C>
 where
     T: Config,
+    C: ConfiqueConfig<T>,
 {
-    pub fn new(config_dir: ConfigDir, config_filename: String) -> Self {
+    pub fn new(config_dir: ConfigDir, config_filename: String, confique_config: C) -> Self {
         Self {
             config_dir,
             config_filename,
-            partial: None,
+            confique_config,
+            _phantom: PhantomData,
         }
-    }
-
-    pub fn partial(mut self, partial: T::Layer) -> Self {
-        self.partial = Some(partial);
-        self
     }
 
     pub fn get_full_path(&self) -> PathBuf {
@@ -41,17 +49,21 @@ where
 }
 
 #[derive(Clone)]
-pub struct AppConfig<T: Config> {
+pub struct AppConfig<T, C>
+where
+    T: Config,
+    C: ConfiqueConfig<T>,
+{
     config_dir: PathBuf,
-    partial: Option<T::Layer>,
+    confique_config: C,
     filename: String,
     config: Arc<ArcSwap<T>>,
 }
 
-impl<T: Config + PartialEq> LoadConfig for AppConfig<T>
+impl<T, C> LoadConfig for AppConfig<T, C>
 where
     T: Config + PartialEq,
-    T::Layer: Clone,
+    C: ConfiqueConfig<T>,
 {
     type Config = Arc<T>;
     type Error = Arc<confique::Error>;
@@ -60,13 +72,7 @@ where
     }
 
     fn reload(&self) -> Result<Arc<T>, Self::Error> {
-        let loader = T::builder().env();
-        #[cfg(any(feature = "toml", feature = "yaml", feature = "json"))]
-        let mut loader = loader.file(self.full_path());
-        if let Some(partial) = &self.partial {
-            loader = loader.preloaded(partial.clone());
-        }
-
+        let loader = self.confique_config.builder(&self.full_path());
         let val = loader.load().map_err(Arc::new)?;
         self.config.store(Arc::new(val));
         Ok(self.snapshot())
@@ -77,33 +83,27 @@ where
     }
 }
 
-impl<T> AppConfig<T>
+impl<T, C> AppConfig<T, C>
 where
     T: Config + PartialEq,
-    T::Layer: Clone,
+    C: ConfiqueConfig<T>,
 {
-    pub fn new(settings: ConfigSettings<T>) -> Result<Self, confique::Error> {
+    pub fn new(settings: ConfigSettings<T, C>) -> Result<Self, confique::Error> {
         let config_dir = settings.config_dir.get_config_dir();
 
         let full_path = settings.get_full_path();
         ensure_created(&config_dir, &full_path, || {
-            write_config_template::<T>(&full_path)
+            write_config_template(&settings.confique_config, &full_path);
         })
         .unwrap();
 
-        let loader = T::builder().env();
-        #[cfg(any(feature = "toml", feature = "yaml", feature = "json"))]
-        let mut loader = loader.file(full_path);
-        if let Some(partial) = &settings.partial {
-            loader = loader.preloaded(partial.clone());
-        }
-
+        let loader = settings.confique_config.builder(&settings.get_full_path());
         let val = loader.load()?;
         let config = Arc::new(ArcSwap::new(Arc::new(val)));
 
         Ok(Self {
             config_dir,
-            partial: settings.partial,
+            confique_config: settings.confique_config,
             filename: settings.config_filename,
             config,
         })
@@ -120,29 +120,16 @@ where
     }
 
     pub fn write_config_template(&self) {
-        write_config_template::<T>(&self.full_path());
+        write_config_template(&self.confique_config, &self.full_path());
     }
 }
 
-fn write_config_template<T: Config>(path: &Path) {
-    #[cfg(any(feature = "toml", feature = "yaml", feature = "json"))]
-    {
-        let format = confique::FileFormat::from_extension(path.extension().unwrap()).unwrap();
-        let content = match format {
-            #[cfg(feature = "toml")]
-            confique::FileFormat::Toml => {
-                confique::toml::template::<T>(confique::toml::FormatOptions::default())
-            }
-            #[cfg(feature = "yaml")]
-            confique::FileFormat::Yaml => {
-                confique::yaml::template::<T>(confique::yaml::FormatOptions::default())
-            }
-            #[cfg(feature = "json")]
-            confique::FileFormat::Json5 => {
-                confique::json5::template::<T>(confique::json5::FormatOptions::default())
-            }
-        };
-        let mut file = fs::File::create(path).unwrap();
-        file.write_all(content.as_bytes()).unwrap();
-    }
+fn write_config_template<T, C>(confique_config: &C, path: &Path)
+where
+    T: Config,
+    C: ConfiqueConfig<T>,
+{
+    let content = confique_config.template();
+    let mut file = fs::File::create(path).unwrap();
+    file.write_all(content.as_bytes()).unwrap();
 }

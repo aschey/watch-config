@@ -1,35 +1,27 @@
 use std::path::Path;
 
 use clap::Parser;
-use confique::yaml::FormatOptions;
-use confique::{Config, yaml};
+use figment::Figment;
+use figment::providers::{Format, Yaml};
+use serde::Deserialize;
 use tracing_subscriber::EnvFilter;
-use watch_config::backend::confique::{AppConfig, ConfigSettings, ConfiqueConfig};
+use watch_config::backend::figment::{AppConfig, ConfigSettings, FigmentConfig};
 use watch_config::{ConfigDir, ConfigWatcherService, LoadConfig};
 
-#[derive(Config, PartialEq, Eq, Clone, Debug)]
-#[config(layer_attr(derive(Clone)))]
+#[derive(Deserialize, PartialEq, Eq, Clone, Debug)]
 struct AppConfigExample {
-    #[config(default = 1)]
     pub number: usize,
-    #[config(default = "abc")]
     pub string: String,
-    #[config(default = true)]
     pub boolean: bool,
-    #[config(default=[])]
     pub array: Vec<String>,
     pub optional: Option<String>,
 }
 
 struct ConfigBuilder;
 
-impl ConfiqueConfig<AppConfigExample> for ConfigBuilder {
-    fn builder(&self, path: &Path) -> confique::Builder<AppConfigExample> {
-        AppConfigExample::builder().file(path).env()
-    }
-
-    fn template(&self) -> String {
-        yaml::template::<AppConfigExample>(FormatOptions::default())
+impl FigmentConfig for ConfigBuilder {
+    fn loader(&self, path: &Path) -> figment::Figment {
+        Figment::new().merge(Yaml::file(path))
     }
 }
 
@@ -51,10 +43,11 @@ async fn main() {
 
     let settings = ConfigSettings::new(
         ConfigDir::Custom("./.config".into()),
-        "config_confique.yml".to_owned(),
+        "config_figment.yml".to_owned(),
         ConfigBuilder,
     );
-    let config = AppConfig::new(settings).unwrap();
+
+    let config = AppConfig::<AppConfigExample, _>::new(settings);
 
     let cli = Cli::parse();
     match cli {

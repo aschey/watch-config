@@ -1,46 +1,44 @@
 use std::io::{self};
+use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use schematic::schema::SchemaGenerator;
-use schematic::{Config, ConfigError, ConfigLoader, Format, PartialConfig, Schematic, schema};
+use schematic::{Config, ConfigError, ConfigLoader, Schematic};
 
 use crate::{ConfigDir, LoadConfig, ensure_created, overwrite_config_file};
 
-pub struct ConfigSettings<T, C>
+pub trait SchematicConfig<T>
 where
     T: Config,
+{
+    fn loader(&self, path: &Path) -> ConfigLoader<T>;
+    fn generate_template(&self, path: &Path);
+}
+
+pub struct ConfigSettings<T, S>
+where
+    T: Config,
+    S: SchematicConfig<T>,
 {
     config_dir: ConfigDir,
-    format: Format,
     config_filename: String,
-    partial: Option<T::Partial>,
-    context: C,
+    schematic_config: S,
+    _phantom: PhantomData<T>,
 }
 
-impl<T> ConfigSettings<T, ()>
+impl<T, S> ConfigSettings<T, S>
 where
     T: Config,
+    S: SchematicConfig<T>,
 {
-    pub fn new(config_dir: ConfigDir, format: Format, config_filename: String) -> Self {
+    pub fn new(config_dir: ConfigDir, config_filename: String, schematic_config: S) -> Self {
         Self {
             config_dir,
-            format,
             config_filename,
-            partial: None,
-            context: (),
+            schematic_config,
+            _phantom: PhantomData,
         }
-    }
-}
-
-impl<T, C> ConfigSettings<T, C>
-where
-    T: Config,
-{
-    pub fn partial(mut self, partial: T::Partial) -> Self {
-        self.partial = Some(partial);
-        self
     }
 
     pub fn get_full_path(&self) -> PathBuf {
@@ -48,42 +46,22 @@ where
     }
 }
 
-impl<T, C> ConfigSettings<T, C>
-where
-    T: Config + PartialConfig,
-{
-    pub fn context(
-        self,
-        context: <T as PartialConfig>::Context,
-    ) -> ConfigSettings<T, <T as PartialConfig>::Context> {
-        let Self {
-            config_dir,
-            format,
-            config_filename,
-            partial,
-            context: _context,
-        } = self;
-        ConfigSettings {
-            config_dir,
-            format,
-            config_filename,
-            partial,
-            context,
-        }
-    }
-}
-
 #[derive(Clone)]
-pub struct AppConfig<T: Config> {
-    format: Format,
+pub struct AppConfig<T, S>
+where
+    S: SchematicConfig<T>,
+    T: Config,
+{
     config_dir: PathBuf,
     filename: String,
+    schematic_config: S,
     config: Arc<ArcSwap<T>>,
 }
 
-impl<T> LoadConfig for AppConfig<T>
+impl<T, S> LoadConfig for AppConfig<T, S>
 where
     T: Config + PartialEq,
+    S: SchematicConfig<T>,
 {
     type Config = Arc<T>;
     type Error = Arc<ConfigError>;
@@ -93,9 +71,7 @@ where
     }
 
     fn reload(&self) -> Result<Arc<T>, Self::Error> {
-        let mut loader = ConfigLoader::<T>::new();
-        loader.file(self.full_path()).unwrap();
-
+        let loader = self.schematic_config.loader(&self.full_path());
         let val = loader.load().map_err(Arc::new)?;
         self.config.store(Arc::new(val.config));
         Ok(self.snapshot())
@@ -106,29 +82,26 @@ where
     }
 }
 
-impl<T> AppConfig<T>
+impl<T, S> AppConfig<T, S>
 where
+    S: SchematicConfig<T>,
     T: Schematic + Config + PartialEq,
 {
-    pub fn new(
-        settings: ConfigSettings<T, <T::Partial as PartialConfig>::Context>,
-    ) -> Result<Self, ConfigError> {
+    pub fn new(settings: ConfigSettings<T, S>) -> Result<Self, ConfigError> {
         let config_dir = settings.config_dir.get_config_dir();
 
         let full_path = settings.get_full_path();
         ensure_created(&config_dir, &full_path, || {
-            write_config_template::<T>(settings.format, &full_path)
+            settings.schematic_config.generate_template(&full_path);
         })
         .unwrap();
 
-        let mut loader = ConfigLoader::<T>::new();
-        loader.file(full_path)?;
-        loader.load_partial(&settings.context)?;
+        let loader = settings.schematic_config.loader(&full_path);
         let val = loader.load()?.config;
         let config = Arc::new(ArcSwap::new(Arc::new(val)));
 
         Ok(Self {
-            format: settings.format,
+            schematic_config: settings.schematic_config,
             config_dir,
             filename: settings.config_filename,
             config,
@@ -145,39 +118,6 @@ where
     }
 
     pub fn write_config_template(&self) {
-        write_config_template::<T>(self.format, &self.full_path())
-    }
-}
-
-fn write_config_template<T: Schematic>(format: Format, path: &Path) {
-    let mut generator = SchemaGenerator::default();
-    generator.add::<T>();
-
-    match format {
-        #[cfg(feature = "json")]
-        Format::Json => {
-            generator
-                .generate(path, schema::JsoncTemplateRenderer::default())
-                .unwrap();
-        }
-        #[cfg(feature = "pkl")]
-        Format::Pkl => {
-            generator
-                .generate(path, schema::PklTemplateRenderer::default())
-                .unwrap();
-        }
-        #[cfg(feature = "toml")]
-        Format::Toml => {
-            generator
-                .generate(path, schema::TomlTemplateRenderer::default())
-                .unwrap();
-        }
-        #[cfg(feature = "yaml")]
-        Format::Yaml => {
-            generator
-                .generate(path, schema::YamlTemplateRenderer::default())
-                .unwrap();
-        }
-        Format::None => {}
+        self.schematic_config.generate_template(&self.full_path());
     }
 }

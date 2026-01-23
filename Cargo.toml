@@ -8,11 +8,12 @@ arc-swap = "1.7"
 directories = "6"
 notify = "8"
 notify-debouncer-full = "0.6"
-schematic = { version = "0.18", features = [
+schematic = { version = "0.19", features = [
   "schema",
   "renderer_template",
 ], optional = true }
 confique = { version = "0.4", optional = true }
+figment = { version = "0.10", optional = true }
 serde = { version = "1.0.134", features = ["derive"] }
 tokio = { version = "1.27", features = ["rt", "sync", "macros"] }
 tokio-util = "0.7.16"
@@ -24,11 +25,11 @@ futures = "0.3.30"
 tokio = { version = "1.43.0", features = ["rt-multi-thread", "sync", "macros"] }
 clap = { version = "4.5.31", features = ["derive"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+schematic = { version = "0.19", features = ["yaml"] }
+confique = { version = "0.4", features = ["yaml"] }
+figment = { version = "0.10", features = ["yaml"] }
 
 [features]
 schematic = ["dep:schematic"]
 confique = ["dep:confique"]
-json = ["schematic?/json", "confique?/json5"]
-toml = ["schematic?/toml", "confique?/toml"]
-yaml = ["schematic?/yaml", "confique?/yaml"]
-pkl = ["schematic?/pkl"]
+figment = ["dep:figment"]

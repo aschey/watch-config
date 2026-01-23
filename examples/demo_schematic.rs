@@ -1,14 +1,19 @@
 use clap::Parser;
-use schematic::{Config, Format};
+use schematic::schema::{SchemaGenerator, YamlTemplateRenderer};
+use schematic::{Config, ConfigLoader};
 use tracing_subscriber::EnvFilter;
-use watch_config::backend::schematic::{AppConfig, ConfigSettings};
+use watch_config::backend::schematic::{AppConfig, ConfigSettings, SchematicConfig};
 use watch_config::{ConfigDir, ConfigWatcherService, LoadConfig};
 
 #[derive(Config, PartialEq, Eq, Clone, Debug)]
 struct AppConfigExample {
+    #[setting(default = 1)]
     pub number: usize,
+    #[setting(default = "abc")]
     pub string: String,
+    #[setting(default = true)]
     pub boolean: bool,
+    #[setting(default=vec![])]
     pub array: Vec<String>,
     pub optional: Option<String>,
 }
@@ -21,6 +26,24 @@ enum Cli {
     Validate,
 }
 
+struct ConfigBuilder;
+
+impl SchematicConfig<AppConfigExample> for ConfigBuilder {
+    fn loader(&self, path: &std::path::Path) -> schematic::ConfigLoader<AppConfigExample> {
+        let mut loader = ConfigLoader::<AppConfigExample>::new();
+        loader.file(path).unwrap();
+        loader
+    }
+
+    fn generate_template(&self, path: &std::path::Path) {
+        let mut generator = SchemaGenerator::default();
+        generator.add::<AppConfigExample>();
+        generator
+            .generate(path, YamlTemplateRenderer::default())
+            .unwrap();
+    }
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -31,10 +54,10 @@ async fn main() {
 
     let settings = ConfigSettings::new(
         ConfigDir::Custom("./.config".into()),
-        Format::Yaml,
-        "config.yml".to_owned(),
+        "config_schematic.yml".to_owned(),
+        ConfigBuilder,
     );
-    let config = AppConfig::<AppConfigExample>::new(settings).unwrap();
+    let config = AppConfig::new(settings).unwrap();
 
     let cli = Cli::parse();
     match cli {
